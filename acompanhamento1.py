@@ -1,12 +1,20 @@
 import streamlit as st
 import pandas as pd
 import calendar
+import json
 from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
 import io
 import os
 
 # Configuração da página
-st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗓️")
+st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗕️")
 
 # --- ESTILO CSS PERSONALIZADO ---
 st.markdown("""
@@ -100,31 +108,37 @@ st.markdown("""
 
 # --- FUNÇÕES PRINCIPAIS ---
 @st.cache_data(ttl=120)
-def carregar_dados_demo():
-    """Carrega dados de demonstração em vez de acessar o Vivver"""
-    # Exemplo de dados fictícios - substitua por seus dados reais
-    dados_demo = {
-        "data": [
-            {
-                "DT_RowId": 1,
-                "Unidade": "Centro de Saúde",
-                "Especialidade": "Clínico Geral",
-                "Profissional": "Dr. Silva",
-                "Serviço": "Consulta Rotina",
-                "Origem": "Agendamento Online",
-                "Tipo": "Normal",
-                "Hora": "09:00",
-                "Agenda direta": "Sim",
-                "Data": "01/06/2023",
-                "Data_Cadastro": "15/05/2023",
-                "Profissional do Cadastro": "Sistema",
-                "Tipo de Serviço": "Consulta",
-                "Obs": ""
-            },
-            # Adicione mais dados fictícios conforme necessário
-        ]
-    }
-    return dados_demo
+def carregar_dados_reais():
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+
+        servico = Service(ChromeDriverManager().install())
+        navegador = webdriver.Chrome(service=servico, options=chrome_options)
+
+        username = os.getenv('VIVVER_USER', '123')
+        password = os.getenv('VIVVER_PASS', '123456')
+
+        navegador.get('https://itabira-mg.vivver.com/login')
+        WebDriverWait(navegador, 10).until(EC.presence_of_element_located((By.ID, 'conta'))).send_keys(username)
+        WebDriverWait(navegador, 10).until(EC.presence_of_element_located((By.ID, 'password'))).send_keys(password)
+        WebDriverWait(navegador, 10).until(EC.element_to_be_clickable((By.XPATH, '/html/body/div[1]/div/div/form/div[2]'))).click()
+        WebDriverWait(navegador, 10).until(EC.url_changes('https://itabira-mg.vivver.com/login'))
+
+        navegador.get("https://itabira-mg.vivver.com/bit/gadget/view_paginate.json?id=225&draw=1&start=0&length=10000")
+        dados_json = navegador.find_element(By.TAG_NAME, "pre").text
+        dados = json.loads(dados_json)
+
+        navegador.quit()
+        return dados
+
+    except Exception as e:
+        if 'navegador' in locals():
+            navegador.quit()
+        st.error(f"Erro ao carregar dados: {str(e)}")
+        return None
 
 def processar_dados(dados):
     if not dados or "data" not in dados:
@@ -223,10 +237,12 @@ def show_start_screen():
     </div>
     """, unsafe_allow_html=True)
     
+    # Botão "Iniciar" grande e centralizado
     if st.button("INICIAR", key="start_button", type="primary"):
         st.session_state.started = True
         st.rerun()
     
+    # Botão "Histórico de Versões" (abre em nova aba)
     st.markdown("""
     <div style="text-align: center;">
         <a href="https://exemplo.com/historico-versoes" target="_blank" class="history-button">
@@ -235,6 +251,7 @@ def show_start_screen():
     </div>
     """, unsafe_allow_html=True)
     
+    # Créditos
     st.markdown("""
     <div class="creditos">
         <p>Elaborado por: <strong>Vinicius Viana</strong></p>
@@ -246,6 +263,7 @@ def show_start_screen():
 def main_app():
     st.title("📅 Acompanhamento de Vagas")
 
+    # Botão para recarregar os dados
     if st.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state.selected_date = None
@@ -254,30 +272,13 @@ def main_app():
     if 'selected_date' not in st.session_state:
         st.session_state.selected_date = None
 
-    with st.spinner("Carregando dados de demonstração..."):
-        dados = carregar_dados_demo()
+    with st.spinner("Carregando dados..."):
+        dados = carregar_dados_reais()
         df = processar_dados(dados)
 
     if df.empty:
-        st.warning("Nenhum dado foi carregado. Modo de demonstração com dados fictícios.")
-        # Adiciona alguns dados fictícios para demonstração
-        demo_data = {
-            "DT_RowId": [1, 2, 3],
-            "Unidade": ["Centro", "Posto A", "Posto B"],
-            "Especialidade": ["Clínico", "Pediatra", "Gineco"],
-            "Profissional": ["Dr. A", "Dra. B", "Dr. C"],
-            "Serviço": ["Consulta", "Retorno", "Exame"],
-            "Origem": ["Online", "Balcão", "Telefone"],
-            "Tipo": ["Normal", "Urgente", "Normal"],
-            "Hora": ["09:00", "10:30", "14:00"],
-            "Agenda direta": ["Sim", "Não", "Sim"],
-            "Data": [datetime.now().strftime("%d/%m/%Y")]*3,
-            "Data_Cadastro": ["01/01/2023"]*3,
-            "Profissional do Cadastro": ["Sistema"]*3,
-            "Tipo de Serviço": ["Consulta"]*3,
-            "Obs": [""]*3
-        }
-        df = pd.DataFrame(demo_data)
+        st.warning("Nenhum dado foi carregado. Verifique a conexão ou as credenciais.")
+        return
 
     st.sidebar.header("Filtros")
 
@@ -297,11 +298,14 @@ def main_app():
     origens_disponiveis = ['Todos'] + sorted(df['Origem'].dropna().unique().tolist())
     origem_selecionada = st.sidebar.selectbox("Filtrar por Origem", origens_disponiveis)
     
+    # NOVO BOTÃO: Ver Detalhes da Origem (abre URL em nova aba)
     st.sidebar.markdown("---")
     if st.sidebar.button("🔍 Ver Detalhes da Origem", key="origin_details_button"):
+        # Substitua pela URL desejada - incluindo parâmetro da origem selecionada
+        url_detalhes = f"https://exemplo.com/detalhes-origem?origem={origem_selecionada.replace(' ', '%20')}"
         st.markdown(f"""
         <script>
-            window.open('https://exemplo.com/detalhes-origem?origem={origem_selecionada.replace(" ", "%20")}', '_blank');
+            window.open('{url_detalhes}', '_blank');
         </script>
         """, unsafe_allow_html=True)
 
