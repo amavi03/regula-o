@@ -3,18 +3,13 @@ import pandas as pd
 import calendar
 import json
 from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 import io
+import requests
+from requests.auth import HTTPBasicAuth
 import os
 
 # Configuração da página
-st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗕️")
+st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗓️")
 
 # --- ESTILO CSS PERSONALIZADO ---
 st.markdown("""
@@ -106,37 +101,49 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- DADOS DE ACESSO VISÍVEIS ---
+VIVVER_USER = "123"  # Substitua pelo usuário real
+VIVVER_PASS = "123456"  # Substitua pela senha real
+BASE_URL = "https://itabira-mg.vivver.com"
+LOGIN_URL = f"{BASE_URL}/login"
+API_URL = f"{BASE_URL}/bit/gadget/view_paginate.json?id=225&draw=1&start=0&length=10000"
+
 # --- FUNÇÕES PRINCIPAIS ---
 @st.cache_data(ttl=120)
 def carregar_dados_reais():
+    """Carrega dados diretamente da API usando requests"""
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-
-        servico = Service(ChromeDriverManager().install())
-        navegador = webdriver.Chrome(service=servico, options=chrome_options)
-
-        username = os.getenv('VIVVER_USER', '123')
-        password = os.getenv('VIVVER_PASS', '123456')
-
-        navegador.get('https://itabira-mg.vivver.com/login')
-        WebDriverWait(navegador, 10).until(EC.presence_of_element_located((By.ID, 'conta'))).send_keys(username)
-        WebDriverWait(navegador, 10).until(EC.presence_of_element_located((By.ID, 'password'))).send_keys(password)
-        WebDriverWait(navegador, 10).until(EC.element_to_be_clickable((By.XPATH, '/html/body/div[1]/div/div/form/div[2]'))).click()
-        WebDriverWait(navegador, 10).until(EC.url_changes('https://itabira-mg.vivver.com/login'))
-
-        navegador.get("https://itabira-mg.vivver.com/bit/gadget/view_paginate.json?id=225&draw=1&start=0&length=10000")
-        dados_json = navegador.find_element(By.TAG_NAME, "pre").text
-        dados = json.loads(dados_json)
-
-        navegador.quit()
-        return dados
-
+        # Cria sessão persistente
+        session = requests.Session()
+        
+        # Dados de login
+        login_payload = {
+            "conta": VIVVER_USER,
+            "password": VIVVER_PASS
+        }
+        
+        # Faz o login
+        login_response = session.post(LOGIN_URL, data=login_payload)
+        
+        if login_response.status_code != 200:
+            st.error(f"Falha no login. Status: {login_response.status_code}")
+            return None
+        
+        # Verifica se login foi bem-sucedido (adaptar conforme a resposta real)
+        if "login" in login_response.url:  # Se redireciona de volta para login
+            st.error("Credenciais inválidas")
+            return None
+        
+        # Acessa a API de dados
+        api_response = session.get(API_URL)
+        
+        if api_response.status_code == 200:
+            return api_response.json()
+        else:
+            st.error(f"Erro ao acessar API. Status: {api_response.status_code}")
+            return None
+            
     except Exception as e:
-        if 'navegador' in locals():
-            navegador.quit()
         st.error(f"Erro ao carregar dados: {str(e)}")
         return None
 
@@ -237,12 +244,10 @@ def show_start_screen():
     </div>
     """, unsafe_allow_html=True)
     
-    # Botão "Iniciar" grande e centralizado
     if st.button("INICIAR", key="start_button", type="primary"):
         st.session_state.started = True
         st.rerun()
     
-    # Botão "Histórico de Versões" (abre em nova aba)
     st.markdown("""
     <div style="text-align: center;">
         <a href="https://exemplo.com/historico-versoes" target="_blank" class="history-button">
@@ -251,7 +256,6 @@ def show_start_screen():
     </div>
     """, unsafe_allow_html=True)
     
-    # Créditos
     st.markdown("""
     <div class="creditos">
         <p>Elaborado por: <strong>Vinicius Viana</strong></p>
@@ -263,7 +267,11 @@ def show_start_screen():
 def main_app():
     st.title("📅 Acompanhamento de Vagas")
 
-    # Botão para recarregar os dados
+    # Mostra credenciais atuais (apenas para visualização)
+    with st.expander("🔐 Credenciais de Acesso Atuais"):
+        st.write(f"**Usuário:** {VIVVER_USER}")
+        st.write(f"**URL Base:** {BASE_URL}")
+
     if st.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state.selected_date = None
@@ -277,7 +285,7 @@ def main_app():
         df = processar_dados(dados)
 
     if df.empty:
-        st.warning("Nenhum dado foi carregado. Verifique a conexão ou as credenciais.")
+        st.warning("Nenhum dado foi carregado. Verifique as credenciais e conexão.")
         return
 
     st.sidebar.header("Filtros")
@@ -298,14 +306,11 @@ def main_app():
     origens_disponiveis = ['Todos'] + sorted(df['Origem'].dropna().unique().tolist())
     origem_selecionada = st.sidebar.selectbox("Filtrar por Origem", origens_disponiveis)
     
-    # NOVO BOTÃO: Ver Detalhes da Origem (abre URL em nova aba)
     st.sidebar.markdown("---")
     if st.sidebar.button("🔍 Ver Detalhes da Origem", key="origin_details_button"):
-        # Substitua pela URL desejada - incluindo parâmetro da origem selecionada
-        url_detalhes = f"https://exemplo.com/detalhes-origem?origem={origem_selecionada.replace(' ', '%20')}"
         st.markdown(f"""
         <script>
-            window.open('{url_detalhes}', '_blank');
+            window.open('https://exemplo.com/detalhes-origem?origem={origem_selecionada.replace(" ", "%20")}', '_blank');
         </script>
         """, unsafe_allow_html=True)
 
