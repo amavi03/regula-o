@@ -7,6 +7,11 @@ import io
 import os
 import requests
 from requests.auth import HTTPBasicAuth
+import urllib3
+from bs4 import BeautifulSoup
+
+# Configuração para desenvolvimento (remover em produção)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configuração da página
 st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗕️")
@@ -98,6 +103,16 @@ st.markdown("""
         color: #666;
         font-size: 14px;
     }
+    
+    /* AVISO SSL */
+    .ssl-warning {
+        background-color: #fff3cd;
+        color: #856404;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        border-left: 4px solid #ffeeba;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,32 +120,80 @@ st.markdown("""
 @st.cache_data(ttl=120)
 def carregar_dados_reais():
     try:
-        # Usando requests em vez de Selenium
-        username = os.getenv('VIVVER_USER', '123')
-        password = os.getenv('VIVVER_PASS', '123456')
+        username = os.getenv('VIVVER_USER', st.secrets.get("VIVVER_USER", "123"))
+        password = os.getenv('VIVVER_PASS', st.secrets.get("VIVVER_PASS", "123456"))
         
-        # Primeiro faça login para obter a sessão
         session = requests.Session()
         login_url = 'https://itabira-mg.vivver.com/login'
         data_url = "https://itabira-mg.vivver.com/bit/gadget/view_paginate.json?id=225&draw=1&start=0&length=10000"
         
-        # Tentativa de login (ajuste conforme necessário para o site)
-        login_response = session.post(login_url, data={
-            'conta': username,
-            'password': password
-        }, auth=HTTPBasicAuth(username, password))
-        
-        if login_response.status_code != 200:
-            st.error("Falha no login. Verifique as credenciais.")
-            return None
+        # Primeiro obtém a página de login para pegar tokens CSRF se necessário
+        try:
+            # Tentativa com verificação SSL
+            response = session.get(login_url, verify=True)
+            if response.status_code != 200:
+                # Se falhar, tenta sem verificação SSL
+                response = session.get(login_url, verify=False)
+                
+            soup = BeautifulSoup(response.text, 'html.parser')
+            csrf_token = soup.find('input', {'name': '_token'})['value'] if soup.find('input', {'name': '_token'}) else None
             
-        # Obter os dados
-        response = session.get(data_url)
-        if response.status_code == 200:
-            dados = response.json()
-            return dados
-        else:
-            st.error(f"Erro ao obter dados: {response.status_code}")
+            # Dados para login
+            login_data = {
+                'conta': username,
+                'password': password,
+                '_token': csrf_token  # Adiciona CSRF token se existir
+            }
+            
+            # Remove chave se o token for None
+            if csrf_token is None:
+                login_data.pop('_token', None)
+            
+            # Tentativa de login com verificação SSL
+            try:
+                login_response = session.post(
+                    login_url,
+                    data=login_data,
+                    verify=True,
+                    allow_redirects=True
+                )
+            except requests.exceptions.SSLError:
+                # Se falhar SSL, tenta sem verificação
+                login_response = session.post(
+                    login_url,
+                    data=login_data,
+                    verify=False,
+                    allow_redirects=True
+                )
+                st.markdown("""
+                <div class="ssl-warning">
+                    ⚠️ Aviso: Conexão realizada sem verificação completa de certificado SSL por necessidade técnica.
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Verifica se o login foi bem-sucedido
+            if 'login' in login_response.url:
+                st.error("Falha no login. Verifique as credenciais.")
+                return None
+                
+            # Obter os dados
+            try:
+                response = session.get(data_url, verify=True)
+            except requests.exceptions.SSLError:
+                response = session.get(data_url, verify=False)
+                
+            if response.status_code == 200:
+                try:
+                    return response.json()
+                except ValueError:
+                    st.error("Resposta não é um JSON válido. Página pode ter redirecionado para login.")
+                    return None
+            else:
+                st.error(f"Erro ao obter dados: HTTP {response.status_code}")
+                return None
+                
+        except Exception as e:
+            st.error(f"Erro durante o processo de login: {str(e)}")
             return None
 
     except Exception as e:
@@ -234,12 +297,10 @@ def show_start_screen():
     </div>
     """, unsafe_allow_html=True)
     
-    # Botão "Iniciar" grande e centralizado
     if st.button("INICIAR", key="start_button", type="primary"):
         st.session_state.started = True
         st.rerun()
     
-    # Botão "Histórico de Versões" (abre em nova aba)
     st.markdown("""
     <div style="text-align: center;">
         <a href="https://exemplo.com/historico-versoes" target="_blank" class="history-button">
@@ -248,7 +309,6 @@ def show_start_screen():
     </div>
     """, unsafe_allow_html=True)
     
-    # Créditos
     st.markdown("""
     <div class="creditos">
         <p>Elaborado por: <strong>Vinicius Viana</strong></p>
@@ -260,7 +320,6 @@ def show_start_screen():
 def main_app():
     st.title("📅 Acompanhamento de Vagas")
 
-    # Botão para recarregar os dados
     if st.button("🔄 Recarregar dados"):
         st.cache_data.clear()
         st.session_state.selected_date = None
@@ -295,10 +354,8 @@ def main_app():
     origens_disponiveis = ['Todos'] + sorted(df['Origem'].dropna().unique().tolist())
     origem_selecionada = st.sidebar.selectbox("Filtrar por Origem", origens_disponiveis)
     
-    # NOVO BOTÃO: Ver Detalhes da Origem (abre URL em nova aba)
     st.sidebar.markdown("---")
     if st.sidebar.button("🔍 Ver Detalhes da Origem", key="origin_details_button"):
-        # Substitua pela URL desejada - incluindo parâmetro da origem selecionada
         url_detalhes = f"https://exemplo.com/detalhes-origem?origem={origem_selecionada.replace(' ', '%20')}"
         st.markdown(f"""
         <script>
