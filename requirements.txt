@@ -1,6 +1,5 @@
-streamlit
-selenium
-webdriver-manager
-pandas
-openpyxl
-xlsxwriter
+beautifulsoup4==4.12.2
+requests==2.31.0
+pandas==2.0.3
+streamlit==1.28.0
+urllib3==2.0.7
