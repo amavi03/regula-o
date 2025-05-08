@@ -1,5 +1,6 @@
 streamlit
 selenium
-beautifulsoup4
+webdriver-manager
 pandas
-lxml
+openpyxl
+xlsxwriter
