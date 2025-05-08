@@ -1,19 +1,10 @@
-# Pacotes principais
 streamlit==1.29.0
+selenium==4.15.2
+webdriver-manager==4.0.1
 pandas==2.1.3
 openpyxl==3.1.2
 xlsxwriter==3.1.9
-
-# Web scraping
-selenium==4.15.2
-webdriver-manager==4.0.1
 requests==2.31.0
 beautifulsoup4==4.12.2
-
-# Segurança e conexão
 urllib3==2.0.7
-pyopenssl==23.3.0
-cryptography==41.0.5
-
-# Gerenciamento de configurações
 python-dotenv==1.0.0
