@@ -3,15 +3,9 @@ import pandas as pd
 import calendar
 import json
 from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
 import io
 import os
+import requests
 
 # Configuração da página
 st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗕️")
@@ -106,39 +100,70 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- DADOS MOCKADOS PARA DEMONSTRAÇÃO ---
+def criar_dados_mockados():
+    """Cria dados de exemplo para demonstração quando não houver conexão com a API"""
+    base_date = datetime.now().date()
+    dados = {
+        "data": []
+    }
+    
+    especialidades = ["Cardiologia", "Pediatria", "Ortopedia", "Dermatologia", "Oftalmologia"]
+    origens = ["Sistema", "Telefone", "WhatsApp", "Presencial", "Site"]
+    unidades = ["Unidade Centro", "Unidade Norte", "Unidade Sul"]
+    profissionais = ["Dr. Silva", "Dra. Souza", "Dr. Oliveira", "Dra. Costa", "Dr. Santos"]
+    
+    for i in range(100):
+        day = (base_date.day + i % 20) % 28 + 1  # Garante dias entre 1-28
+        month = base_date.month + (i // 28)
+        if month > 12:
+            month = month - 12
+        
+        dados["data"].append([
+            f"row_{i}",
+            unidades[i % len(unidades)],
+            especialidades[i % len(especialidades)],
+            profissionais[i % len(profissionais)],
+            "Consulta",
+            origens[i % len(origens)],
+            "Rotina",
+            f"{8 + (i % 10)}:00",
+            "Sim",
+            f"{day:02d}/{month:02d}/{base_date.year}",
+            f"{day:02d}/{month:02d}/{base_date.year}",
+            profissionais[(i + 1) % len(profissionais)],
+            "Eletiva",
+            f"Observação {i}"
+        ])
+    
+    return dados
+
 # --- FUNÇÕES PRINCIPAIS ---
 @st.cache_data(ttl=120)
 def carregar_dados_reais():
     try:
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-
-        servico = Service(ChromeDriverManager().install())
-        navegador = webdriver.Chrome(service=servico, options=chrome_options)
-
-        username = os.getenv('VIVVER_USER', '123')
-        password = os.getenv('VIVVER_PASS', '123456')
-
-        navegador.get('https://itabira-mg.vivver.com/login')
-        WebDriverWait(navegador, 10).until(EC.presence_of_element_located((By.ID, 'conta'))).send_keys(username)
-        WebDriverWait(navegador, 10).until(EC.presence_of_element_located((By.ID, 'password'))).send_keys(password)
-        WebDriverWait(navegador, 10).until(EC.element_to_be_clickable((By.XPATH, '/html/body/div[1]/div/div/form/div[2]'))).click()
-        WebDriverWait(navegador, 10).until(EC.url_changes('https://itabira-mg.vivver.com/login'))
-
-        navegador.get("https://itabira-mg.vivver.com/bit/gadget/view_paginate.json?id=225&draw=1&start=0&length=10000")
-        dados_json = navegador.find_element(By.TAG_NAME, "pre").text
-        dados = json.loads(dados_json)
-
-        navegador.quit()
-        return dados
-
+        # Verifica se há variáveis de ambiente para autenticação
+        api_url = os.getenv('API_URL', '')
+        api_key = os.getenv('API_KEY', '')
+        
+        if not api_url or not api_key:
+            st.warning("Usando dados de demonstração. Configure as variáveis de ambiente API_URL e API_KEY para acessar dados reais.")
+            return criar_dados_mockados()
+        
+        # Se houver configuração de API, tenta fazer a requisição
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get(api_url, headers=headers)
+        response.raise_for_status()
+        
+        return response.json()
+        
     except Exception as e:
-        if 'navegador' in locals():
-            navegador.quit()
-        st.error(f"Erro ao carregar dados: {str(e)}")
-        return None
+        st.error(f"Erro ao carregar dados da API: {str(e)}. Usando dados de demonstração.")
+        return criar_dados_mockados()
 
 def processar_dados(dados):
     if not dados or "data" not in dados:
@@ -255,7 +280,7 @@ def show_start_screen():
     st.markdown("""
     <div class="creditos">
         <p>Elaborado por: <strong>Vinicius Viana</strong></p>
-        <p>Versão: 25.05.05</p>
+        <p>Versão: 25.05.05 (Cloud)</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -342,7 +367,7 @@ def main_app():
         <div style="text-align: right; font-size: 3em; color: #777;">
             Desenvolvido por<br>
             <strong>Vinicius Viana</strong><br>
-            <strong>V25.05.05</strong>
+            <strong>V25.05.05 (Cloud)</strong>
         </div>
         """, 
         unsafe_allow_html=True
