@@ -1,19 +1,6 @@
-import streamlit as st
-import pandas as pd
-import calendar
-import json
-from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-import io
-import os
-import subprocess
-import time
-from selenium.common.exceptions import TimeoutException, WebDriverException
-import requests
-from urllib3.exceptions import MaxRetryError, NewConnectionError
+streamlit
+pandas
+selenium
+webdriver-manager
+requests
+urllib3
