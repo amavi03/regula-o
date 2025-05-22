@@ -1,6 +1,6 @@
 streamlit
 pandas
 selenium
-webdriver-manager
+webdriver-manager ==114.0.5735.90
 requests
 urllib3
