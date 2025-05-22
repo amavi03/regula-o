@@ -90,10 +90,28 @@ st.markdown("""
         border-radius: 5px;
         margin: 10px 0;
     }
+    .error-details {
+        background-color: #fff2f0;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+        border-left: 4px solid #ff4d4f;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÕES ---
+# --- FUNÇÕES AUXILIARES ---
+def safe_split(texto, separator=None, maxsplit=-1):
+    """Versão segura do método split() que trata None e outros casos"""
+    if texto is None:
+        return []
+    if not isinstance(texto, str):
+        try:
+            texto = str(texto)
+        except:
+            return []
+    return texto.split(separator, maxsplit)
+
 def get_chrome_version():
     try:
         # Tentativa para Windows
@@ -104,10 +122,9 @@ def get_chrome_version():
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE
                 )
                 output, _ = process.communicate()
-                version = output.decode('utf-8').split()[-1]
-                return version.split('.')[0]
-            except Exception as e:
-                st.warning(f"Erro ao detectar versão no Windows: {str(e)}")
+                version = output.decode('utf-8').strip().split()[-1]
+                return version.split('.')[0] if version else None
+            except Exception:
                 pass
         
         # Tentativa para macOS
@@ -118,10 +135,9 @@ def get_chrome_version():
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE
                 )
                 output, _ = process.communicate()
-                version = output.decode('utf-8').split()[-1]
-                return version.split('.')[0]
-            except Exception as e:
-                st.warning(f"Erro ao detectar versão no macOS: {str(e)}")
+                version = output.decode('utf-8').strip().split()[-1]
+                return version.split('.')[0] if version else None
+            except Exception:
                 pass
         
         # Tentativa para Linux
@@ -131,15 +147,15 @@ def get_chrome_version():
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE
             )
             output, _ = process.communicate()
-            version = output.decode('utf-8').split()[-1]
-            return version.split('.')[0]
-        except Exception as e:
-            st.warning(f"Erro ao detectar versão no Linux: {str(e)}")
+            version = output.decode('utf-8').strip().split()[-1]
+            return version.split('.')[0] if version else None
+        except Exception:
             pass
         
         return None
     except Exception as e:
-        st.warning(f"Erro geral ao detectar versão do Chrome: {str(e)}")
+        if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+            st.warning(f"Erro ao detectar versão do Chrome: {str(e)}")
         return None
 
 def testar_conexao():
@@ -154,6 +170,7 @@ def testar_conexao():
     except Exception as e:
         return "error", f"❌ Erro inesperado: {str(e)}"
 
+# --- FUNÇÕES PRINCIPAIS ---
 @st.cache_data(ttl=36000)
 def carregar_dados_reais(debug_mode=False):
     max_tentativas = 3
@@ -163,8 +180,6 @@ def carregar_dados_reais(debug_mode=False):
         navegador = None
         try:
             chrome_options = Options()
-            
-            # Configurações para melhorar a estabilidade
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-gpu')
@@ -172,14 +187,9 @@ def carregar_dados_reais(debug_mode=False):
             chrome_options.add_argument('--disable-extensions')
             chrome_options.add_argument('--dns-prefetch-disable')
             
-            # Configuração do modo headless baseado no debug_mode
             if not debug_mode:
-                if tentativa == 0:
-                    chrome_options.add_argument('--headless=new')  # Modo headless moderno
-                elif tentativa == 1:
-                    chrome_options.add_argument('--headless')      # Modo headless tradicional
+                chrome_options.add_argument('--headless=new')
             
-            # Configurações adicionais para depuração
             if debug_mode:
                 chrome_options.add_argument('--remote-debugging-port=9222')
                 chrome_options.add_experimental_option("detach", True)
@@ -187,26 +197,24 @@ def carregar_dados_reais(debug_mode=False):
             
             servico = Service(ChromeDriverManager().install())
             navegador = webdriver.Chrome(service=servico, options=chrome_options)
-            
-            # Timeouts aumentados
             navegador.set_page_load_timeout(45)
             navegador.set_script_timeout(45)
             
             username = os.getenv('VIVVER_USER', '123')
             password = os.getenv('VIVVER_PASS', '38355212')
 
-            # Teste de conexão básica primeiro
+            # Teste de conexão básica
             if debug_mode:
-                st.write("⏳ Testando conexão básica com google.com...")
-            navegador.get("https://www.google.com")
+                st.write("⏳ Testando conexão básica...")
             
+            navegador.get("https://www.google.com")
             if debug_mode:
                 st.write("✅ Conexão básica OK. Acessando Vivver...")
 
             # Acessar página de login
             navegador.get('https://itabira-mg.vivver.com/login')
             
-            # Espera dinâmica com verificações periódicas
+            # Espera dinâmica com verificações
             start_time = time.time()
             elemento_encontrado = False
             while time.time() - start_time < 30:
@@ -227,59 +235,51 @@ def carregar_dados_reais(debug_mode=False):
             if debug_mode:
                 st.write("✅ Página de login carregada. Preenchendo credenciais...")
 
-            # Preencher credenciais com múltiplas tentativas
-            for i in range(3):
-                try:
-                    conta = navegador.find_element(By.ID, 'conta')
-                    conta.clear()
-                    conta.send_keys(username)
-                    break
-                except Exception as e:
-                    if i == 2:
-                        raise
-                    time.sleep(1)
+            # Preencher credenciais com tratamento de erro
+            conta = WebDriverWait(navegador, 10).until(
+                EC.presence_of_element_located((By.ID, 'conta')))
+            conta.clear()
+            conta.send_keys(username)
             
-            for i in range(3):
-                try:
-                    senha = navegador.find_element(By.ID, 'password')
-                    senha.clear()
-                    senha.send_keys(password)
-                    break
-                except Exception as e:
-                    if i == 2:
-                        raise
-                    time.sleep(1)
+            senha = WebDriverWait(navegador, 10).until(
+                EC.presence_of_element_located((By.ID, 'password')))
+            senha.clear()
+            senha.send_keys(password)
             
             if debug_mode:
                 st.write("✅ Credenciais preenchidas. Tentando login...")
 
-            # Tentar clicar no botão de login de várias formas
+            # Tentar login
             try:
                 navegador.find_element(By.XPATH, '/html/body/div[1]/div/div/form/div[2]').click()
             except:
                 navegador.execute_script("document.querySelector('form div[role=\"button\"]').click()")
             
-            # Verificar se o login foi bem-sucedido
+            # Verificar login
             WebDriverWait(navegador, 20).until(
                 lambda driver: driver.current_url != 'https://itabira-mg.vivver.com/login')
             
             if debug_mode:
                 st.write("✅ Login realizado com sucesso. Acessando API...")
 
-            # Acessar a API com tratamento especial
+            # Acessar API
             url_api = "https://itabira-mg.vivver.com/bit/gadget/view_paginate.json?id=228&draw=1&columns%5B0%5D%5Bdata%5D=0&columns%5B0%5D%5Bname%5D=&columns%5B0%5D%5Bsearchable%5D=true&columns%5B0%5D%5Borderable%5D=true&columns%5B0%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B0%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B1%5D%5Bdata%5D=1&columns%5B1%5D%5Bname%5D=&columns%5B1%5D%5Bsearchable%5D=true&columns%5B1%5D%5Borderable%5D=true&columns%5B1%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B1%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B2%5D%5Bdata%5D=2&columns%5B2%5D%5Bname%5D=&columns%5B2%5D%5Bsearchable%5D=true&columns%5B2%5D%5Borderable%5D=true&columns%5B2%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B2%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B3%5D%5Bdata%5D=3&columns%5B3%5D%5Bname%5D=&columns%5B3%5D%5Bsearchable%5D=true&columns%5B3%5D%5Borderable%5D=true&columns%5B3%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B3%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B4%5D%5Bdata%5D=4&columns%5B4%5D%5Bname%5D=&columns%5B4%5D%5Bsearchable%5D=true&columns%5B4%5D%5Borderable%5D=true&columns%5B4%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B4%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B5%5D%5Bdata%5D=5&columns%5B5%5D%5Bname%5D=&columns%5B5%5D%5Bsearchable%5D=true&columns%5B5%5D%5Borderable%5D=true&columns%5B5%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B5%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B6%5D%5Bdata%5D=6&columns%5B6%5D%5Bname%5D=&columns%5B6%5D%5Bsearchable%5D=true&columns%5B6%5D%5Borderable%5D=true&columns%5B6%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B6%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B7%5D%5Bdata%5D=7&columns%5B7%5D%5Bname%5D=&columns%5B7%5D%5Bsearchable%5D=true&columns%5B7%5D%5Borderable%5D=true&columns%5B7%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B7%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B8%5D%5Bdata%5D=8&columns%5B8%5D%5Bname%5D=&columns%5B8%5D%5Bsearchable%5D=true&columns%5B8%5D%5Borderable%5D=true&columns%5B8%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B8%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B9%5D%5Bdata%5D=9&columns%5B9%5D%5Bname%5D=&columns%5B9%5D%5Bsearchable%5D=true&columns%5B9%5D%5Borderable%5D=true&columns%5B9%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B9%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B10%5D%5Bdata%5D=10&columns%5B10%5D%5Bname%5D=&columns%5B10%5D%5Bsearchable%5D=true&columns%5B10%5D%5Borderable%5D=true&columns%5B10%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B10%5D%5Bsearch%5D%5Bregex%5D=false&columns%5B11%5D%5Bdata%5D=11&columns%5B11%5D%5Bname%5D=&columns%5B11%5D%5Bsearchable%5D=true&columns%5B11%5D%5Borderable%5D=true&columns%5B11%5D%5Bsearch%5D%5Bvalue%5D=&columns%5B11%5D%5Bsearch%5D%5Bregex%5D=false&order%5B0%5D%5Bcolumn%5D=0&order%5B0%5D%5Bdir%5D=asc&start=0&length=10000&search%5Bvalue%5D=&search%5Bregex%5D=false&_=1746727676517"
             
             for i in range(3):
                 try:
                     navegador.get(url_api)
-                    WebDriverWait(navegador, 20).until(
+                    elemento_pre = WebDriverWait(navegador, 20).until(
                         EC.presence_of_element_located((By.TAG_NAME, "pre")))
-                    dados_json = navegador.find_element(By.TAG_NAME, "pre").text
+                    
+                    dados_json = elemento_pre.text if elemento_pre else None
+                    if not dados_json:
+                        raise ValueError("Dados JSON não encontrados ou vazios")
+                    
                     dados = json.loads(dados_json)
                     
                     if debug_mode:
                         st.write("✅ Dados obtidos com sucesso!")
-                        st.json(dados[:2])  # Mostrar amostra dos dados
+                        st.json(dados[:2])
                     
                     navegador.quit()
                     return dados
@@ -308,7 +308,10 @@ def carregar_dados_reais(debug_mode=False):
                     st.warning(f"Tentando novamente ({tentativa}/{max_tentativas})...")
                 time.sleep(5)
             else:
-                st.error(f"Falha na tentativa {tentativa}: {str(e)}")
+                error_msg = f"Falha na tentativa {tentativa}: {str(e)}"
+                if "NoneType" in str(e) and "split" in str(e):
+                    error_msg += "\n\n🔍 **Possível causa**: Tentativa de dividir um texto que não existe (None). Verifique se os dados estão sendo extraídos corretamente."
+                st.error(error_msg)
                 if "net::ERR_CONNECTION_TIMED_OUT" in str(e):
                     st.error("""
                     **Problema de timeout na conexão detectado. Possíveis soluções:**
@@ -322,19 +325,45 @@ def carregar_dados_reais(debug_mode=False):
     return None
 
 def processar_dados(dados):
-    if not dados or "data" not in dados:
+    if not dados or not isinstance(dados, dict) or "data" not in dados:
+        st.warning("Dados inválidos ou estrutura incorreta recebida")
+        if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+            st.json(dados)
         return pd.DataFrame()
 
-    df = pd.DataFrame(dados["data"])
-    df.columns = [
-        "DT_RowId", "Unidade", "Especialidade", "Profissional", "Serviço",
-        "Origem", "Tipo", "Hora", "Agenda direta", "Data",
-        "Data_Cadastro", "Profissional do Cadastro", "Tipo de Serviço", "Obs"
-    ]
-    df = df.drop(columns=["DT_RowId"])
-    df["Data"] = pd.to_datetime(df["Data"], dayfirst=True, errors="coerce")
-    df = df.dropna(subset=["Data"])
-    return df
+    try:
+        df = pd.DataFrame(dados["data"])
+        
+        # Verificar se temos colunas suficientes
+        if len(df.columns) < 14:
+            st.warning("Número insuficiente de colunas nos dados")
+            if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+                st.write(f"Número de colunas: {len(df.columns)}")
+                st.dataframe(df.head())
+            return pd.DataFrame()
+            
+        df.columns = [
+            "DT_RowId", "Unidade", "Especialidade", "Profissional", "Serviço",
+            "Origem", "Tipo", "Hora", "Agenda direta", "Data",
+            "Data_Cadastro", "Profissional do Cadastro", "Tipo de Serviço", "Obs"
+        ]
+        df = df.drop(columns=["DT_RowId"])
+        
+        # Converter data com tratamento de erros
+        df["Data"] = pd.to_datetime(df["Data"], dayfirst=True, errors="coerce")
+        df = df.dropna(subset=["Data"])
+        
+        # Processar hora com verificação
+        if "Hora" in df.columns:
+            df["Hora"] = df["Hora"].apply(lambda x: x if pd.notna(x) and isinstance(x, str) and ":" in x else None)
+        
+        return df
+    
+    except Exception as e:
+        st.error(f"Erro ao processar dados: {str(e)}")
+        if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+            st.exception(e)
+        return pd.DataFrame()
 
 def gerar_excel(df):
     output = io.BytesIO()
@@ -342,6 +371,7 @@ def gerar_excel(df):
         df.to_excel(writer, index=False, sheet_name='Agendas')
         writer.save()
     return output.getvalue()
+
 def mostrar_calendario_mensal(df, origem_selecionada='Todos'):
     try:
         if origem_selecionada != 'Todos':
@@ -393,12 +423,13 @@ def mostrar_calendario_mensal(df, origem_selecionada='Todos'):
                             eventos_dia = df_mes[df_mes['Data'].dt.date == data_atual]
                             num_eventos = len(eventos_dia)
                             
-                            # [Restante do código de formatação permanece igual...]
-                            # Contar serviços específicos
-                            ppi_count = eventos_dia['Serviço'].str.contains('PPI', case=False, na=False).sum()
-                            cmce_count = eventos_dia['Serviço'].str.contains('CMCE', case=False, na=False).sum()
-                            oncologia_count = eventos_dia['Serviço'].str.contains('ONCOLOGIA', case=False, na=False).sum()
-                            glaucoma_count = eventos_dia['Serviço'].str.contains('GLAUCOMA', case=False, na=False).sum()
+                            # Contar serviços específicos com safe_split
+                            servicos = eventos_dia['Serviço'].apply(lambda x: safe_split(str(x).upper()) if 'Serviço' in eventos_dia.columns else []
+                            
+                            ppi_count = sum(1 for sublist in servicos for item in sublist if 'PPI' in item)
+                            cmce_count = sum(1 for sublist in servicos for item in sublist if 'CMCE' in item)
+                            oncologia_count = sum(1 for sublist in servicos for item in sublist if 'ONCOLOGIA' in item)
+                            glaucoma_count = sum(1 for sublist in servicos for item in sublist if 'GLAUCOMA' in item)
 
                             if num_eventos == 0:
                                 bg_color = "#ffffff"
@@ -441,14 +472,7 @@ def mostrar_calendario_mensal(df, origem_selecionada='Todos'):
                                     background-color: {bg_color}; color: {text_color}'>
                                     <div style='font-weight: bold; font-size: 1.1em;'>{dia}</div>
                                     <div style='font-size: 0.8em;'>{num_eventos} consulta(s)</div>
-                            """
-
-                            # Adicionar serviços apenas se houver algum
-                            if servicos_html:
-                                day_html += servicos_html
-
-                            # Fechar as divs
-                            day_html += """
+                                    {servicos_html}
                                 </div>
                             </div>
                             """
@@ -460,6 +484,8 @@ def mostrar_calendario_mensal(df, origem_selecionada='Todos'):
                                 st.rerun()
     except Exception as e:
         st.error(f"Erro ao gerar calendário: {str(e)}")
+        if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+            st.exception(e)
 
 # --- FUNÇÃO PRINCIPAL ---
 def main():
@@ -468,6 +494,7 @@ def main():
     # Configuração de debug
     debug_mode = st.sidebar.checkbox("🔍 Modo de Depuração", value=False,
                                     help="Ativa modo de depuração com mais informações e navegador visível")
+    st.session_state.debug_mode = debug_mode
     
     # Seção de diagnóstico
     with st.sidebar.expander("🔧 Diagnóstico do Sistema", expanded=False):
@@ -512,14 +539,29 @@ def main():
     with st.spinner("Carregando dados..."):
         try:
             dados = carregar_dados_reais(debug_mode)
+            if dados is None:
+                st.error("Nenhum dado foi retornado pelo scraper")
+                st.stop()
+                
             df = processar_dados(dados)
+            
+            if df.empty:
+                st.warning("DataFrame vazio após processamento. Verifique os dados originais.")
+                if debug_mode and dados:
+                    st.json(dados)
+                st.stop()
+                
         except Exception as e:
             st.error(f"Falha crítica ao carregar dados: {str(e)}")
+            if debug_mode:
+                st.markdown("""
+                <div class='error-details'>
+                    <h4>🔍 Detalhes do Erro</h4>
+                    <pre>{}</pre>
+                </div>
+                """.format(str(e)), unsafe_allow_html=True)
+                st.exception(e)
             st.stop()
-
-    if df.empty:
-        st.warning("Nenhum dado foi carregado. Verifique a conexão ou as credenciais.")
-        return
 
     # Filtros
     st.sidebar.header("Filtros")
@@ -574,18 +616,6 @@ def main():
     st.sidebar.metric(label="Unidades atendidas", value=df_filtrado['Unidade'].nunique())
     st.sidebar.markdown("---")
 
-    # Rodapé
-    st.sidebar.markdown(
-        """
-        <div style="text-align: right; font-size: 3em; color: #777;">
-            Desenvolvido por<br>
-            <strong>Vinicius Viana</strong><br>
-            <strong>V25.05.05</strong>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-
     # Mostrar dados filtrados
     if not df_filtrado.empty:
         st.markdown(f"### 📋 Vagas {periodo}")
@@ -611,6 +641,18 @@ def main():
         )
     else:
         st.info(f"Nenhuma consulta agendada {periodo}.")
+
+    # Rodapé
+    st.sidebar.markdown(
+        """
+        <div style="text-align: right; font-size: 3em; color: #777;">
+            Desenvolvido por<br>
+            <strong>Vinicius Viana</strong><br>
+            <strong>V25.05.05</strong>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
