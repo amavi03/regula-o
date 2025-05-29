@@ -4,10 +4,15 @@ import calendar
 import json
 from datetime import datetime
 import requests
-import time  # Importação adicionada
+import time
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 import os
 import io
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
+
+# Desativa avisos de SSL
+urllib3.disable_warnings(InsecureRequestWarning)
 
 # Configuração da página
 st.set_page_config(layout="wide", page_title="Agenda de Consultas", page_icon="🗕️")
@@ -83,7 +88,7 @@ def safe_split(text, separator=None, maxsplit=-1):
 
 def testar_conexao():
     try:
-        response = requests.get("https://itabira-mg.vivver.com", timeout=10)
+        response = requests.get("https://itabira-mg.vivver.com", timeout=10, verify=False)
         if response.status_code == 200:
             return "success", "✅ Conexão com o site estabelecida com sucesso!"
         else:
@@ -107,7 +112,7 @@ def carregar_dados_reais(debug_mode=False):
             password = os.getenv('VIVVER_PASS', '38355212')
             
             # Primeira requisição para obter cookies
-            session.get("https://itabira-mg.vivver.com/login", timeout=10)
+            session.get("https://itabira-mg.vivver.com/login", timeout=10, verify=False)
             
             # Dados do formulário de login
             login_data = {
@@ -122,6 +127,7 @@ def carregar_dados_reais(debug_mode=False):
                 data=login_data,
                 timeout=30,
                 allow_redirects=True,
+                verify=False,
                 headers={
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
@@ -133,7 +139,7 @@ def carregar_dados_reais(debug_mode=False):
             
             # Acessar a API diretamente
             url_api = "https://itabira-mg.vivver.com/bit/gadget/view_paginate.json?id=228&draw=1&start=0&length=10000"
-            response = session.get(url_api, timeout=30)
+            response = session.get(url_api, timeout=30, verify=False)
             response.raise_for_status()
             
             # Processar resposta
