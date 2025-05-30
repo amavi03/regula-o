@@ -105,8 +105,8 @@ def carregar_dados_reais(debug_mode=False):
             session = requests.Session()
             
             # Credentials - show in debug mode
-            username = os.getenv('VIVVER_USER', '123')
-            password = os.getenv('VIVVER_PASS', '38355212')
+            username = os.getenv('VIVVER_USER', '')
+            password = os.getenv('VIVVER_PASS', '')
             
             if debug_mode:
                 st.sidebar.write(f"Tentando login com usuário: {username}")
