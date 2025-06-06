@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import chardet
 
 # Configuração da página
 st.set_page_config(page_title="Dashboard de Agendamentos", layout="wide")
@@ -8,10 +9,35 @@ st.set_page_config(page_title="Dashboard de Agendamentos", layout="wide")
 # Título do dashboard
 st.title("📅 Dashboard de Agendamentos")
 
-# Função para carregar dados
+# Função para detectar encoding
+def detect_encoding(uploaded_file):
+    rawdata = uploaded_file.getvalue()
+    result = chardet.detect(rawdata)
+    return result['encoding']
+
+# Função para corrigir caracteres
+def fix_encoding(text):
+    if isinstance(text, str):
+        return text.encode('latin1').decode('utf-8', errors='ignore')
+    return text
+
+# Função para carregar e processar dados
 @st.cache_data
 def load_data(uploaded_file):
-    df = pd.read_csv(uploaded_file, encoding='latin1', sep=';' if ';' in uploaded_file.getvalue().decode('latin1')[:100] else ',')
+    # Detectar encoding
+    encoding = detect_encoding(uploaded_file)
+    
+    # Ler arquivo CSV
+    try:
+        df = pd.read_csv(uploaded_file, encoding=encoding, sep=';' if ';' in uploaded_file.getvalue().decode('latin1')[:100] else ',')
+    except:
+        # Se falhar, tentar ler com encoding padrão e corrigir depois
+        df = pd.read_csv(uploaded_file, encoding='latin1', sep=';' if ';' in uploaded_file.getvalue().decode('latin1')[:100] else ',')
+    
+    # Corrigir problemas de encoding nas colunas de texto
+    text_columns = df.select_dtypes(include=['object']).columns
+    for col in text_columns:
+        df[col] = df[col].apply(fix_encoding)
     
     # Verificar e converter coluna de data se necessário
     if 'Data agenda' in df.columns:
@@ -19,6 +45,10 @@ def load_data(uploaded_file):
             df['Data agenda'] = pd.to_datetime(df['Data agenda'], errors='coerce')
         except:
             pass
+    
+    # Remover registros com situação TRA
+    if 'SITUAÇÃO' in df.columns:
+        df = df[df['SITUAÇÃO'] != 'TRA']
     
     return df
 
@@ -77,12 +107,12 @@ if uploaded_file is not None:
                 (df['Data agenda'].isin(datas_selecionadas))
             ]
         
-        # Filtro para COD CBO
+        # Filtro para COD CBO - TODOS PRÉ-SELECIONADOS POR PADRÃO
         cbos = sorted(df_filtrado['COD CBO'].unique())
         cbos_selecionados = st.sidebar.multiselect(
             'CBO',
             options=cbos,
-            default=cbos[:3] if len(cbos) > 3 else cbos
+            default=cbos  # Todos selecionados por padrão
         )
         
         if cbos_selecionados:
@@ -93,23 +123,59 @@ if uploaded_file is not None:
         
         col1, col2, col3, col4 = st.columns(4)
         
-        # Contagem de cada SITUAÇÃO
+        # Contagem de cada SITUAÇÃO (TRA já foi removido)
         contagem_rec = len(df_filtrado[df_filtrado['SITUAÇÃO'] == 'REC'])
         contagem_can = len(df_filtrado[df_filtrado['SITUAÇÃO'] == 'CAN'])
         contagem_age = len(df_filtrado[df_filtrado['SITUAÇÃO'] == 'AGE'])
         contagem_fal = len(df_filtrado[df_filtrado['SITUAÇÃO'] == 'FAL'])
         
         with col1:
-            st.metric(label="Realizados (REC)", value=contagem_rec)
+            # Cartão REC - Verde
+            st.markdown(
+                f"""
+                <div style="background-color:#4CAF50;padding:20px;border-radius:10px;color:white;">
+                    <h3 style="color:white;">Realizados (REC)</h3>
+                    <h1 style="color:white;text-align:center;">{contagem_rec}</h1>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with col2:
-            st.metric(label="Cancelados (CAN)", value=contagem_can)
+            # Cartão CAN - Vermelho
+            st.markdown(
+                f"""
+                <div style="background-color:#F44336;padding:20px;border-radius:10px;color:white;">
+                    <h3 style="color:white;">Cancelados (CAN)</h3>
+                    <h1 style="color:white;text-align:center;">{contagem_can}</h1>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with col3:
-            st.metric(label="Agendados (AGE)", value=contagem_age)
+            # Cartão AGE - Azul
+            st.markdown(
+                f"""
+                <div style="background-color:#2196F3;padding:20px;border-radius:10px;color:white;">
+                    <h3 style="color:white;">Agendados (AGE)</h3>
+                    <h1 style="color:white;text-align:center;">{contagem_age}</h1>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with col4:
-            st.metric(label="Faltas (FAL)", value=contagem_fal)
+            # Cartão FAL - Amarelo (apenas FAL agora)
+            st.markdown(
+                f"""
+                <div style="background-color:#FFEB3B;padding:20px;border-radius:10px;color:black;">
+                    <h3 style="color:black;">Faltas (FAL)</h3>
+                    <h1 style="color:black;text-align:center;">{contagem_fal}</h1>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         # Visualização dos dados filtrados
         st.header("Dados Filtrados")
@@ -118,5 +184,8 @@ if uploaded_file is not None:
         # Gráfico de distribuição das situações
         st.header("Distribuição das Situações")
         st.bar_chart(df_filtrado['SITUAÇÃO'].value_counts())
+        
+        # Adicionando informação sobre os dados filtrados
+        st.info(f"Total de registros analisados: {len(df_filtrado)} | Registros TRA (transferidos) foram removidos da análise")
 else:
     st.info("Por favor, carregue um arquivo CSV para começar.")
