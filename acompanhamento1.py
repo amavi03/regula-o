@@ -77,12 +77,12 @@ if uploaded_file is not None:
                 (df['Data agenda'].isin(datas_selecionadas))
             ]
         
-        # Filtro para COD CBO - TODOS PRÉ-SELECIONADOS POR PADRÃO
+        # Filtro para COD CBO
         cbos = sorted(df_filtrado['COD CBO'].unique())
         cbos_selecionados = st.sidebar.multiselect(
             'CBO',
             options=cbos,
-            default=cbos  # Todos selecionados por padrão
+            default=cbos[:3] if len(cbos) > 3 else cbos
         )
         
         if cbos_selecionados:
